@@ -25,12 +25,15 @@ async def async_get_config_entry_diagnostics(
         "hub_stats": {
             "last_fetch_old": hub._last_fetch_old.isoformat() if hub._last_fetch_old else None,
             "last_fetch_new": hub._last_fetch_new.isoformat() if hub._last_fetch_new else None,
+            "last_fetch_poe": hub._last_fetch_poe.isoformat() if hub._last_fetch_poe else None,
             "etags_count": len(hub._etags),
             "last_modified_count": len(hub._last_modified),
             "cache_ttl_seconds": hub._cache_ttl.total_seconds(),
         },
         "api_urls": {
             "is_new_api": coordinator.is_new_api,
+            "source": coordinator.source,
+            "source_url": coordinator.source_url,
             "api_region_key": coordinator.api_region_key,
         }
     }

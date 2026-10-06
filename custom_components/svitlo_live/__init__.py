@@ -15,7 +15,10 @@ from .const import (
     PLATFORMS,
     CONF_REGION,
     CONF_QUEUE,
-    DEFAULT_SCAN_INTERVAL,
+    CONF_SCAN_INTERVAL,
+    DEFAULT_SCAN_INTERVAL_MINUTES,
+    MIN_SCAN_INTERVAL_MINUTES,
+    MAX_SCAN_INTERVAL_MINUTES,
 )
 from .coordinator import SvitloCoordinator
 
@@ -70,14 +73,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hub = hass.data[DOMAIN]["hub"]
     
     # Зчитуємо параметри
-    scan_interval = entry.data.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL)
+    scan_minutes = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES))
+    scan_minutes = max(MIN_SCAN_INTERVAL_MINUTES, min(MAX_SCAN_INTERVAL_MINUTES, scan_minutes))
     region = entry.data[CONF_REGION]
     queue = entry.data[CONF_QUEUE]
 
     config = {
         CONF_REGION: region,
         CONF_QUEUE: queue,
-        "scan_interval_seconds": scan_interval,
+        "scan_interval_seconds": scan_minutes * 60,
     }
     
     # --- ОЧИЩЕННЯ СТАРИХ ДАНИХ ---
