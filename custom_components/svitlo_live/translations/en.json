@@ -13,7 +13,11 @@
         "title": "Select queue / group",
         "description": "Select your queue or group for {region}.",
         "data": {
-          "queue": "Queue / Group"
+          "queue": "Queue / Group",
+          "scan_interval_minutes": "Update interval (minutes)"
+        },
+        "data_description": {
+          "scan_interval_minutes": "How often to refresh the schedule: from 8 to 60 minutes."
         }
       }
     },
@@ -30,10 +34,12 @@
       "init": {
         "data": {
           "queue": "Queue / Group",
-          "preserve_id": "Preserve entities IDs"
+          "preserve_id": "Preserve entities IDs",
+          "scan_interval_minutes": "Update interval (minutes)"
         },
         "data_description": {
-          "preserve_id": "*(old automations continue to work)*"
+          "preserve_id": "*(old automations continue to work)*",
+          "scan_interval_minutes": "How often to refresh the schedule: from 8 to 60 minutes."
         }
       }
     }

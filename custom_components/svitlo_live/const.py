@@ -8,12 +8,17 @@ PLATFORMS: list[Platform] = [
     Platform.CALENDAR,
 ]
 
-DEFAULT_SCAN_INTERVAL = 600
+# Інтервал опитування налаштовується для кожного запису (у хвилинах)
+MIN_SCAN_INTERVAL_MINUTES = 8
+MAX_SCAN_INTERVAL_MINUTES = 60
+DEFAULT_SCAN_INTERVAL_MINUTES = 10
+DEFAULT_SCAN_INTERVAL = DEFAULT_SCAN_INTERVAL_MINUTES * 60  # секунди
 
 CONF_REGION = "region"
 CONF_QUEUE = "queue"
 CONF_OPERATOR = "operator"
 CONF_PRESERVE_ID = "preserve_id"
+CONF_SCAN_INTERVAL = "scan_interval_minutes"
 
 # Static mappings are deprecated in favor of dynamic fetching, but kept for migration if needed.
 API_REGION_MAP = {
@@ -56,3 +61,9 @@ REGION_QUEUE_MODE = {
 # --- 4. ДВА API ---
 OLD_API_URL = "https://svitlo-proxy.svitlo-proxy.workers.dev"  # Для старих
 DTEK_API_URL = "https://dtek-api.svitlo-proxy.workers.dev/"    # Для нових
+
+# --- 5. ПОЕ (Полтаваобленерго), HTML-сторінка напряму ---
+POE_URL = "https://www.poe.pl.ua/customs/dynamicgpv-info.php"
+POE_REGION_ID = "poltavska-oblast-poe"
+POE_REGION_NAME = "Полтавська область (ПОЕ)"
+POE_QUEUES = [f"{q}.{s}" for q in range(1, 7) for s in (1, 2)]

@@ -54,13 +54,17 @@ The integration now uses own API (thanks to [yaroslav2901](https://github.com/ya
 
 *(Other regions are supported via svitlo.live API).*
 
+### Direct provider sources
+
+* **Poltava Region (ПОЕ)** — schedule is read directly from [poe.pl.ua](https://www.poe.pl.ua/customs/dynamicgpv-info.php) (Poltavaoblenergo). Choose "Полтавська область (ПОЕ)" in the region list. "Possible outage" slots are treated as outages.
+
 ---
 
 ## 🔄 How It Works
 
 ### 🧩 Integration Architecture
 1.  **Unified Coordinator:** All regions/queues share a single cached data source to minimize network requests.
-2.  **Smart Caching:** Data is cached for 10-15 minutes. If you have multiple queues setup, they reuse the same downloaded JSON.
+2.  **Smart Caching:** Data is refreshed every 10 minutes by default (configurable per entry: 8–60 minutes). If you have multiple queues setup, they reuse the same downloaded JSON.
 3.  **Precise Ticking:** The integration calculates the next switch time and schedules an internal timer. If the power is off until 18:00, the sensor will switch to "On" exactly at 18:00:00 without waiting for the next API poll.
 
 ### 🕒 Timezone Handling

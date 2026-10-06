@@ -21,6 +21,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     API_REGION_MAP,
     NEW_API_REGIONS,  # <--- Імпортуємо множину нових регіонів
+    POE_URL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +43,8 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # We need to know if this region is from New API or Old API.
         # For legacy entries, we'll try to find it in the current catalog.
         self.is_new_api = False
+        self.source: Optional[str] = None  # "poe" для прямого джерела ПОЕ, інакше None
+        self.source_url: str = OLD_API_URL
         self.api_region_key = self.region
         self._history_today: list[list[str]] = []
         self._history_tomorrow: list[list[str]] = []
@@ -75,6 +78,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         
         if region_info:
             self.is_new_api = region_info["is_new_api"]
+            self.source = region_info.get("source")
             self.api_region_key = target_id
         else:
             # Fallback for completely unknown regions
@@ -87,9 +91,14 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.api_region_key = mapped_id if mapped_id and self.is_new_api else self.region
 
         # 2) Fetch fresh JSON from appropriate API
-        last_json = await self.hub.ensure_data(is_new=self.is_new_api)
+        if self.source == "poe":
+            self.source_url = POE_URL
+            last_json = await self.hub.ensure_poe_data()
+        else:
+            self.source_url = DTEK_API_URL if self.is_new_api else OLD_API_URL
+            last_json = await self.hub.ensure_data(is_new=self.is_new_api)
         if not last_json:
-            raise UpdateFailed(f"No data available for {'New' if self.is_new_api else 'Old'} API")
+            raise UpdateFailed(f"No data available from {self.source_url}")
 
         # 2) Parse
         try:
@@ -149,7 +158,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "next_change_at": None,
                 "today_48half": [],
                 "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
-                "source": DTEK_API_URL if self.is_new_api else OLD_API_URL,
+                "source": self.source_url,
                 "next_on_at": None,
                 "next_off_at": None,
                 "is_emergency": is_emergency,
@@ -242,7 +251,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "next_change_at": next_change_hhmm,
             "today_48half": today_half,
             "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
-            "source": DTEK_API_URL if self.is_new_api else OLD_API_URL,
+            "source": self.source_url,
             "next_on_at": next_on_at,
             "next_off_at": next_off_at,
             "today_outage_hours": today_outage_hours,
