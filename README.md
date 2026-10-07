@@ -56,7 +56,7 @@ The integration now uses own API (thanks to [yaroslav2901](https://github.com/ya
 
 ### Direct provider sources
 
-* **Poltava Region (ПОЕ)** — schedule is read directly from [poe.pl.ua](https://www.poe.pl.ua/customs/dynamicgpv-info.php) (Poltavaoblenergo). Choose "Полтавська область (ПОЕ)" in the region list. "Possible outage" slots are treated as outages.
+* **Poltava Region (ПОЕ)** — schedule is read directly from [poe.pl.ua](https://www.poe.pl.ua/customs/dynamicgpv-info.php) (Poltavaoblenergo). Choose "Полтавська область (ПОЕ)" in the region list. Only confirmed (red) outages are used; "possible outage" (yellow) slots are treated as power on.
 
 ---
 
