@@ -43,8 +43,11 @@ class SvitloLiveCardEditor extends HTMLElement {
           <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор екстрених відключень (необов'язково):</label>
           <div id="emergency-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
-          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор повітряної тривоги (необов'язково):</label>
+          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор повітряної тривоги (червона) (необов'язково):</label>
           <div id="air-alert-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
+
+          <label style="font-weight: bold; font-size: 14px; margin-top: 8px;">Сенсор повітряної тривоги (жовта) (необов'язково):</label>
+          <div id="air-alert-yellow-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
           <ha-formfield label="Вмикати анімацію тривоги" style="display: flex; align-items: center; margin-top: 4px;">
             <ha-switch id="air-alert-animation-switch"></ha-switch>
@@ -198,6 +201,19 @@ class SvitloLiveCardEditor extends HTMLElement {
       this._airAlertSelector = selector;
     }
 
+    const airAlertYellowContainer = this.querySelector("#air-alert-yellow-picker-container");
+    if (airAlertYellowContainer) {
+      const selector = document.createElement("ha-selector");
+      selector.hass = this._hass;
+      selector.selector = { entity: { domain: ['binary_sensor', 'input_boolean', 'switch', 'sensor'] } };
+      selector.addEventListener("value-changed", (ev) => {
+        this._valueChanged({ target: { configValue: 'air_alert_yellow_entity', value: ev.detail.value } });
+      });
+      airAlertYellowContainer.innerHTML = "";
+      airAlertYellowContainer.appendChild(selector);
+      this._airAlertYellowSelector = selector;
+    }
+
     const scheduleContainer = this.querySelector("#schedule-picker-container");
     if (scheduleContainer) {
       const selector = document.createElement("ha-selector");
@@ -331,6 +347,11 @@ class SvitloLiveCardEditor extends HTMLElement {
     if (this._airAlertSelector) {
       this._airAlertSelector.hass = this._hass;
       this._airAlertSelector.value = this._config.air_alert_entity || '';
+    }
+
+    if (this._airAlertYellowSelector) {
+      this._airAlertYellowSelector.hass = this._hass;
+      this._airAlertYellowSelector.value = this._config.air_alert_yellow_entity || '';
     }
 
     const ps = this.querySelector("#priority-switch");
@@ -535,6 +556,20 @@ class SvitloLiveCard extends HTMLElement {
             ha-card.air-alert-active {
               animation: air-alert-pulse 2s ease-in-out infinite;
               border: 3px solid rgba(255, 0, 0, 0.8);
+            }
+            @keyframes air-alert-yellow-pulse {
+              0%, 100% {
+                box-shadow: 0 0 8px 1px rgba(255, 200, 0, 0.6),
+                            0 0 12px 2px rgba(255, 200, 0, 0.4);
+              }
+              50% {
+                box-shadow: 0 0 12px 2px rgba(255, 200, 0, 0.9),
+                            0 0 18px 3px rgba(255, 200, 0, 0.6);
+              }
+            }
+            ha-card.air-alert-yellow-active {
+              animation: air-alert-yellow-pulse 2s ease-in-out infinite;
+              border: 3px solid rgba(255, 200, 0, 0.8);
             }
             .timeline-block {
                position: relative;
@@ -881,21 +916,20 @@ class SvitloLiveCard extends HTMLElement {
     if (eb) eb.style.display = isEmergency ? 'block' : 'none';
 
     // ПЕРЕВІРКА ПОВІТРЯНОЇ ТРИВОГИ
-    let isAirAlert = false;
-    if (config.air_alert_entity && config.air_alert_animation !== false) {
-      const airAlertState = hass.states[config.air_alert_entity];
-      if (airAlertState && (airAlertState.state === 'on' || airAlertState.state === 'true' || airAlertState.state === 'active')) {
-        isAirAlert = true;
-      }
-    }
+    const isAlertActive = (eid) => {
+      if (!eid) return false;
+      const st = hass.states[eid];
+      return !!st && (st.state === 'on' || st.state === 'true' || st.state === 'active');
+    };
+    const animationEnabled = config.air_alert_animation !== false;
+    const isAirAlert = animationEnabled && isAlertActive(config.air_alert_entity);
+    // Червона тривога має пріоритет над жовтою
+    const isAirAlertYellow = animationEnabled && !isAirAlert && isAlertActive(config.air_alert_yellow_entity);
 
     // Додаємо/прибираємо клас анімації
     if (card) {
-      if (isAirAlert) {
-        card.classList.add('air-alert-active');
-      } else {
-        card.classList.remove('air-alert-active');
-      }
+      card.classList.toggle('air-alert-active', isAirAlert);
+      card.classList.toggle('air-alert-yellow-active', isAirAlertYellow);
     }
 
     let rulerChangeTime = null;
