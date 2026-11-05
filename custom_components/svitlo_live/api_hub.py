@@ -16,11 +16,12 @@ from .const import (
     API_REGION_MAP,
     MIN_SCAN_INTERVAL_MINUTES,
     POE_URL,
+    POE_UNLOADING_URL,
     POE_REGION_ID,
     POE_REGION_NAME,
     POE_QUEUES,
 )
-from .poe_parser import parse_poe_html
+from .poe_parser import parse_poe_html, parse_poe_emergency
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -218,9 +219,29 @@ class SvitloApiHub:
                 _LOGGER.error("Failed to parse POE HTML: %s", err)
                 return self._data_poe or {}
 
+            parsed["regions"][0]["emergency"] = await self._fetch_poe_emergency(today)
+
             self._data_poe = parsed
             self._last_fetch_poe = now
             return parsed
+
+    async def _fetch_poe_emergency(self, today) -> bool:
+        """Чи діє зараз ГАВ/СГАВ за даними ПОЕ.
+
+        Якщо запит не вдався, лишаємо попереднє значення за сьогодні: інакше
+        разовий збій мережі "скасовував" би аварійні відключення в сенсорі.
+        """
+        previous = False
+        if self._data_poe and self._data_poe.get("date_today") == today.isoformat():
+            regions = self._data_poe.get("regions") or [{}]
+            previous = bool(regions[0].get("emergency", False))
+
+        result = await self._fetch_text(POE_UNLOADING_URL, conditional=False)
+        if result is None or result[1] is None:
+            _LOGGER.warning("POE: unloading info unavailable, keeping emergency=%s", previous)
+            return previous
+
+        return parse_poe_emergency(result[1], dt_util.now(TZ_KYIV))
 
     async def _fetch_text(self, url: str, conditional: bool = True) -> Optional[tuple[int, Optional[str]]]:
         """GET url with retries.
