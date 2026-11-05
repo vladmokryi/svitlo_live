@@ -64,6 +64,8 @@ DTEK_API_URL = "https://dtek-api.svitlo-proxy.workers.dev/"    # Для нови
 
 # --- 5. ПОЕ (Полтаваобленерго), HTML-сторінка напряму ---
 POE_URL = "https://www.poe.pl.ua/customs/dynamicgpv-info.php"
+# JSON з поточними заходами розвантаження (ГАВ/СГАВ/ГОП/...), той самий, що показує головна сторінка ПОЕ
+POE_UNLOADING_URL = "https://www.poe.pl.ua/customs/dynamic-unloading-info.php"
 POE_REGION_ID = "poltavska-oblast-poe"
 POE_REGION_NAME = "Полтавська область (ПОЕ)"
 POE_QUEUES = [f"{q}.{s}" for q in range(1, 7) for s in (1, 2)]

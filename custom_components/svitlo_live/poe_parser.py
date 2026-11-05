@@ -4,9 +4,10 @@ Kept free of Home Assistant imports so it can be tested standalone.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Optional
 
 from bs4 import BeautifulSoup
@@ -37,6 +38,16 @@ SLOT_CLASS_CODES = {
 }
 
 SLOTS_PER_DAY = 48
+
+# Типи заходів розвантаження (unloadingtypeid) з /customs/dynamic-unloading-info.php,
+# за розміткою, яку будує poe-custom.js на сайті ПОЕ:
+#   1 = ГАВ  (графік аварійних відключень)
+#   2 = СГАВ (спеціальний графік аварійних відключень)
+#   3 = АЧР  (автоматичне частотне розвантаження, разова подія)
+#   4 = ГПВ  (графік погодинного відключення)
+#   5 = ГОП  (обмеження потужності для непобутових споживачів)
+# Аварійними вважаємо лише ГАВ і СГАВ.
+EMERGENCY_UNLOADING_TYPES = {1, 2}
 
 
 def _parse_section_date(section: Any) -> Optional[date]:
@@ -142,3 +153,41 @@ def parse_poe_html(html: str, region_id: str, region_name: str, today: date, tom
             }
         ],
     }
+
+
+def parse_poe_emergency(raw: str, now: datetime) -> bool:
+    """True, якщо в момент `now` (київський час) діє ГАВ або СГАВ.
+
+    `raw` — відповідь /customs/dynamic-unloading-info.php, напр.:
+    [{"unloaddata": "05-11-2026", "beginhour": 16, "beginminute": 47,
+      "endhour": 23, "endminute": 59, "unloadingtypeid": 1, "unloadingtypename": "ГАВ", ...}]
+    Кінець 00:00 трактуємо як "до кінця доби".
+    """
+    try:
+        entries = json.loads(raw)
+    except ValueError as err:
+        _LOGGER.warning("POE: invalid unloading JSON: %s", err)
+        return False
+    if not isinstance(entries, list):
+        return False
+
+    today = now.strftime("%d-%m-%Y")
+    now_min = now.hour * 60 + now.minute
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            if int(entry.get("unloadingtypeid")) not in EMERGENCY_UNLOADING_TYPES:
+                continue
+            if entry.get("unloaddata") != today:
+                continue
+            begin = int(entry.get("beginhour", 0)) * 60 + int(entry.get("beginminute", 0))
+            end = int(entry.get("endhour", 0)) * 60 + int(entry.get("endminute", 0))
+        except (TypeError, ValueError):
+            continue
+        if end == 0:
+            end = 24 * 60
+        if begin <= now_min <= end:
+            return True
+    return False
