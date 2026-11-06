@@ -8,27 +8,21 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import selector
 from homeassistant.helpers import entity_registry as er
 
-from .api_hub import SvitloApiHub
+from .api_hub import async_get_hub
 from .const import (
     DOMAIN,
     CONF_REGION,
     CONF_QUEUE,
     CONF_PRESERVE_ID,
     CONF_SCAN_INTERVAL,
-    DEFAULT_SCAN_INTERVAL_MINUTES,
     MIN_SCAN_INTERVAL_MINUTES,
     MAX_SCAN_INTERVAL_MINUTES,
+    POE_REGION_ID,
 )
-
-async def _async_get_hub(hass: HomeAssistant) -> SvitloApiHub:
-    """Get the API hub from hass data or create it."""
-    if "hub" not in hass.data.get(DOMAIN, {}):
-        return SvitloApiHub(hass)
-    return hass.data[DOMAIN]["hub"]
 
 
 def _scan_interval_field(default: int) -> dict:
-    """Schema field for the polling interval in minutes."""
+    """Schema field for the ПОЕ polling interval in minutes (shared by all ПОЕ entries)."""
     return {
         vol.Required(CONF_SCAN_INTERVAL, default=default): selector({
             "number": {
@@ -55,7 +49,7 @@ class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return SvitloOptionsFlow(config_entry)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
-        hub = await _async_get_hub(self.hass)
+        hub = await async_get_hub(self.hass)
         self._catalog = await hub.get_regions_catalog()
         
         if user_input is not None:
@@ -94,7 +88,6 @@ class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             queue = user_input[CONF_QUEUE]
-            scan_minutes = int(user_input[CONF_SCAN_INTERVAL])
             title = f"{self._region_name} / {queue}"
 
             await self.async_set_unique_id(f"{self._region_id}_{queue}")
@@ -104,7 +97,6 @@ class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_update_reload_and_abort(
                     entry,
                     data={CONF_REGION: self._region_id, CONF_QUEUE: queue},
-                    options={**entry.options, CONF_SCAN_INTERVAL: scan_minutes},
                     title=title
                 )
 
@@ -113,20 +105,12 @@ class SvitloConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(
                 title=title,
                 data={CONF_REGION: self._region_id, CONF_QUEUE: queue},
-                options={CONF_SCAN_INTERVAL: scan_minutes},
-            )
-
-        current_interval = DEFAULT_SCAN_INTERVAL_MINUTES
-        if is_reconfigure:
-            current_interval = self._get_reconfigure_entry().options.get(
-                CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES
             )
 
         data_schema = vol.Schema({
             vol.Required(CONF_QUEUE): selector({
                 "select": {"options": queue_options, "mode": "dropdown"}
             }),
-            **_scan_interval_field(current_interval),
         })
         
         return self.async_show_form(
@@ -145,14 +129,16 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None):
         """Manage the options."""
-        hub = await _async_get_hub(self.hass)
+        hub = await async_get_hub(self.hass)
         self._catalog = await hub.get_regions_catalog()
         
         region_id = self._config_entry.data.get(CONF_REGION)
         region_node = next((r for r in self._catalog if r["id"] == region_id), None)
+        # Інтервал налаштовується лише для ПОЕ і спільний для всіх записів ПОЕ
+        is_poe = region_id == POE_REGION_ID
         
         if user_input is not None:
-            # We update data for queue, and options for interval
+            # Черга зберігається в data запису; інтервал ПОЕ — у спільних налаштуваннях хаба
             new_data = dict(self._config_entry.data)
             if CONF_QUEUE in user_input:
                 new_data[CONF_QUEUE] = user_input[CONF_QUEUE]
@@ -206,16 +192,21 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
                 data=new_data,
                 title=new_title,
             )
-            # data тут стає новими options запису
+            if is_poe and CONF_SCAN_INTERVAL in user_input:
+                await hub.async_set_poe_interval(int(user_input[CONF_SCAN_INTERVAL]))
+
+            # data тут стає новими options запису; інтервал більше не зберігається в записі
             return self.async_create_entry(
                 title="",
-                data={CONF_SCAN_INTERVAL: int(user_input[CONF_SCAN_INTERVAL])},
+                data={
+                    k: v for k, v in self._config_entry.options.items()
+                    if k != CONF_SCAN_INTERVAL
+                },
             )
 
         queues = region_node.get("queues", []) if region_node else []
         queue_options = [{"label": q, "value": q} for q in queues]
         current_queue = self._config_entry.data.get(CONF_QUEUE)
-        current_interval = self._config_entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES)
 
         schema = {}
         
@@ -228,7 +219,8 @@ class SvitloOptionsFlow(config_entries.OptionsFlow):
                 "boolean": {}
             })
 
-        schema.update(_scan_interval_field(current_interval))
+        if is_poe:
+            schema.update(_scan_interval_field(hub.settings.poe_interval_minutes))
 
         return self.async_show_form(
             step_id="init", 

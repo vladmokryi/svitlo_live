@@ -13,11 +13,7 @@
         "title": "Select queue / group",
         "description": "Select your queue or group for {region}.",
         "data": {
-          "queue": "Queue / Group",
-          "scan_interval_minutes": "Update interval (minutes)"
-        },
-        "data_description": {
-          "scan_interval_minutes": "How often to refresh the schedule: from 8 to 60 minutes."
+          "queue": "Queue / Group"
         }
       }
     },
@@ -35,11 +31,11 @@
         "data": {
           "queue": "Queue / Group",
           "preserve_id": "Preserve entities IDs",
-          "scan_interval_minutes": "Update interval (minutes)"
+          "scan_interval_minutes": "Update interval for POE (minutes)"
         },
         "data_description": {
           "preserve_id": "*(old automations continue to work)*",
-          "scan_interval_minutes": "How often to refresh the schedule: from 8 to 60 minutes."
+          "scan_interval_minutes": "Shared by all POE queues: from 8 to 60 minutes. Other providers update every 10 minutes."
         }
       }
     }

@@ -1,3 +1,5 @@
+from enum import Enum
+
 from homeassistant.const import Platform
 
 DOMAIN = "svitlo_live"
@@ -8,11 +10,37 @@ PLATFORMS: list[Platform] = [
     Platform.CALENDAR,
 ]
 
-# Інтервал опитування налаштовується для кожного запису (у хвилинах)
-MIN_SCAN_INTERVAL_MINUTES = 8
-MAX_SCAN_INTERVAL_MINUTES = 60
+# Інтервал опитування: для проксі-API фіксований, для ПОЕ — один спільний на всю інтеграцію
 DEFAULT_SCAN_INTERVAL_MINUTES = 10
 DEFAULT_SCAN_INTERVAL = DEFAULT_SCAN_INTERVAL_MINUTES * 60  # секунди
+MIN_SCAN_INTERVAL_MINUTES = 8   # межі налаштування інтервалу ПОЕ
+MAX_SCAN_INTERVAL_MINUTES = 60
+
+# Якщо на момент зміни статусу черги дані джерела старші за це — дотягуємо свіжі
+STALE_REFRESH_MINUTES = 5
+# Після невдалого запиту не ходимо до джерела повторно протягом цього часу
+FAILURE_BACKOFF_SECONDS = 60
+# Дані, отримані щойно, віддаємо з кешу (старт кількох записів, перезавантаження)
+REUSE_WINDOW_SECONDS = 60
+# Оновлення після півночі за Києвом: пізніше за вікно повторного використання, щоб
+# опитування о 23:59 не повернуло з кешу дані зі вчорашніми датами
+MIDNIGHT_REFRESH_DELAY_SECONDS = REUSE_WINDOW_SECONDS + 30
+# Каталог регіонів потрібен лише майстру налаштування та визначенню джерела
+CATALOG_MAX_AGE_HOURS = 6
+
+
+class Source(str, Enum):
+    """Джерело даних: кожне опитується одним спільним координатором."""
+
+    DTEK = "dtek"
+    OLD = "old"
+    POE = "poe"
+
+
+# Спільні налаштування інтеграції (поза записами)
+STORAGE_KEY = "svitlo_live.settings"
+STORAGE_VERSION = 1
+STORE_POE_INTERVAL = "poe_scan_interval_minutes"
 
 CONF_REGION = "region"
 CONF_QUEUE = "queue"
@@ -69,3 +97,9 @@ POE_UNLOADING_URL = "https://www.poe.pl.ua/customs/dynamic-unloading-info.php"
 POE_REGION_ID = "poltavska-oblast-poe"
 POE_REGION_NAME = "Полтавська область (ПОЕ)"
 POE_QUEUES = [f"{q}.{s}" for q in range(1, 7) for s in (1, 2)]
+
+SOURCE_URLS = {
+    Source.DTEK: DTEK_API_URL,
+    Source.OLD: OLD_API_URL,
+    Source.POE: POE_URL,
+}

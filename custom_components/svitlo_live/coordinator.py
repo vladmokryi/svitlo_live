@@ -1,56 +1,52 @@
 from __future__ import annotations
 
-import asyncio
 import logging
-import json
 from datetime import datetime, timedelta, date, time
 from typing import Any, Optional, Callable
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .const import (
-    DOMAIN,
-    OLD_API_URL,
-    DTEK_API_URL,
     CONF_REGION,
     CONF_QUEUE,
-    DEFAULT_SCAN_INTERVAL,
-    API_REGION_MAP,
-    NEW_API_REGIONS,  # <--- Імпортуємо множину нових регіонів
-    POE_URL,
+    STALE_REFRESH_MINUTES,
+    Source,
+    SOURCE_URLS,
 )
+from .api_hub import SvitloApiHub, SvitloSourceCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 TZ_KYIV = dt_util.get_time_zone("Europe/Kyiv")
-MIN_REUSE_SECONDS = 600
-MIDNIGHT_BLOCK_MINUTES = 20
 
 
 class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Тягне JSON з API і будує дані для конкретного region/queue."""
+    """Дані конкретного region/queue.
 
-    def __init__(self, hass: HomeAssistant, config: dict[str, Any], hub: Any) -> None:
+    Сам у мережу не ходить: слухає спільний координатор свого джерела і перебудовує
+    дані з його JSON. Власне оновлення (точний тік на зміну статусу, ручне оновлення)
+    перераховує стан локально і лише за застарілих даних просить джерело оновитися.
+    """
+
+    def __init__(self, hass: HomeAssistant, config: dict[str, Any], hub: SvitloApiHub, subscriber_id: str) -> None:
         self.hass = hass
         self.hub = hub
-        self.region: str = config[CONF_REGION] 
+        self.region: str = config[CONF_REGION]
         self.queue: str = config[CONF_QUEUE]
+        self._subscriber_id = subscriber_id
 
-        # We need to know if this region is from New API or Old API.
-        # For legacy entries, we'll try to find it in the current catalog.
-        self.is_new_api = False
-        self.source: Optional[str] = None  # "poe" для прямого джерела ПОЕ, інакше None
-        self.source_url: str = OLD_API_URL
+        # Визначається один раз в async_attach
+        self.source: Optional[Source] = None
+        self.source_url: str = ""
         self.api_region_key = self.region
+        self._source_coordinator: Optional[SvitloSourceCoordinator] = None
+        self._unsub_source: Optional[Callable[[], None]] = None
+
         self._history_today: list[list[str]] = []
         self._history_tomorrow: list[list[str]] = []
-
-        scan_seconds = int(config.get("scan_interval_seconds", DEFAULT_SCAN_INTERVAL))
-
 
         self._unsub_precise: Optional[Callable[[], None]] = None
 
@@ -58,57 +54,74 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             hass=hass,
             logger=_LOGGER,
             name=f"svitlo_live_{self.region}_{self.queue}",
-            update_interval=timedelta(seconds=scan_seconds),
+            update_interval=None,  # опитує координатор джерела
         )
 
-    async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch and parse data from the appropriate API."""
-        # 1) Get regions to find out which API to use and what the actual key is
-        catalog = await self.hub.get_regions_catalog()
-        
-        # Try finding by exact match or mapped match
-        target_id = self.region
-        mapped_id = API_REGION_MAP.get(self.region)
-        
-        region_info = next((r for r in catalog if r["id"] == target_id), None)
-        if not region_info and mapped_id:
-            region_info = next((r for r in catalog if r["id"] == mapped_id), None)
-            if region_info:
-                target_id = mapped_id
-        
-        if region_info:
-            self.is_new_api = region_info["is_new_api"]
-            self.source = region_info.get("source")
-            self.api_region_key = target_id
-        else:
-            # Fallback for completely unknown regions
-            _LOGGER.warning(
-                "Region %s not found in dynamic catalog. Available regions: %s", 
-                self.region,
-                [r["id"] for r in catalog]
-            )
-            self.is_new_api = (self.region in NEW_API_REGIONS or mapped_id in NEW_API_REGIONS)
-            self.api_region_key = mapped_id if mapped_id and self.is_new_api else self.region
+    async def async_attach(self) -> None:
+        """Визначає джерело та підписується на його спільний координатор."""
+        self.source, self.api_region_key = await self.hub.async_resolve_source(self.region)
+        self.source_url = SOURCE_URLS[self.source]
+        self._source_coordinator = await self.hub.async_acquire_source(self.source, self._subscriber_id)
+        self._unsub_source = self._source_coordinator.async_add_listener(self._handle_source_update)
 
-        # 2) Fetch fresh JSON from appropriate API
-        if self.source == "poe":
-            self.source_url = POE_URL
-            last_json = await self.hub.ensure_poe_data()
-        else:
-            self.source_url = DTEK_API_URL if self.is_new_api else OLD_API_URL
-            last_json = await self.hub.ensure_data(is_new=self.is_new_api)
+    @callback
+    def async_detach(self) -> None:
+        if self._unsub_precise:
+            self._unsub_precise()
+            self._unsub_precise = None
+        if self._unsub_source:
+            self._unsub_source()
+            self._unsub_source = None
+        if self._source_coordinator is not None:
+            self.hub.async_release_source(self.source, self._subscriber_id)
+            self._source_coordinator = None
+
+    @callback
+    def _handle_source_update(self) -> None:
+        """Джерело отримало нові дані (або помилку) — перебудовуємо дані черги."""
+        try:
+            payload = self._build_payload()
+        except UpdateFailed as err:
+            self.async_set_update_error(err)
+            return
+        self.async_set_updated_data(payload)
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Точний тік на зміну статусу або ручне оновлення сутності.
+
+        Стан перераховується одразу з наявних даних (статус перемкнеться вчасно навіть
+        без мережі), а якщо дані джерела застарілі — джерело просимо оновитися.
+        """
+        payload = self._build_payload()
+        self._request_source_refresh_if_stale()
+        return payload
+
+    def _request_source_refresh_if_stale(self) -> None:
+        if self._source_coordinator is None:
+            return
+        fetched_at = self._source_coordinator.fetched_at
+        if fetched_at and dt_util.utcnow() - fetched_at < timedelta(minutes=STALE_REFRESH_MINUTES):
+            return
+        # Дебаунсер джерела зводить одночасні запити кількох черг в один
+        self.hass.async_create_task(self._source_coordinator.async_request_refresh())
+
+    def _build_payload(self) -> dict[str, Any]:
+        last_json = self._source_coordinator.data if self._source_coordinator else None
         if not last_json:
             raise UpdateFailed(f"No data available from {self.source_url}")
 
-        # 2) Parse
         try:
             payload = self._build_from_api(last_json)
         except Exception as e:
             raise UpdateFailed(f"Parse/Build error for {self.region}: {e}") from e
 
-        # 3) Precise tick
         self._schedule_precise_refresh(payload)
         return payload
+
+    def _updated_iso(self) -> str:
+        """Час останньої успішної перевірки джерела, а не момент перерахунку."""
+        fetched_at = self._source_coordinator.fetched_at if self._source_coordinator else None
+        return (fetched_at or dt_util.utcnow()).replace(microsecond=0).isoformat()
 
     def _build_from_api(self, api: dict[str, Any]) -> dict[str, Any]:
         date_today = api.get("date_today")
@@ -157,7 +170,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "now_halfhour_index": None,
                 "next_change_at": None,
                 "today_48half": [],
-                "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
+                "updated": self._updated_iso(),
                 "source": self.source_url,
                 "next_on_at": None,
                 "next_off_at": None,
@@ -250,7 +263,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "now_halfhour_index": idx,
             "next_change_at": next_change_hhmm,
             "today_48half": today_half,
-            "updated": dt_util.utcnow().replace(microsecond=0).isoformat(),
+            "updated": self._updated_iso(),
             "source": self.source_url,
             "next_on_at": next_on_at,
             "next_off_at": next_off_at,
@@ -322,6 +335,8 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             @callback
             def _tick(_now) -> None:
+                self._unsub_precise = None
+                # Локальний перерахунок; за застарілих даних — ще й оновлення джерела
                 self.hass.async_create_task(self.async_request_refresh())
 
             self._unsub_precise = async_track_point_in_utc_time(self.hass, _tick, candidate_utc)
