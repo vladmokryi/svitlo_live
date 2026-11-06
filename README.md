@@ -23,7 +23,8 @@ An integration for **Home Assistant** that displays the current electricity supp
 - ✅ Detects the **next power-on** and **power-off** times,  
 - ✅ Shows the time of the **last schedule update**,  
 - ✅ **Unified Reliable API**: Uses a specialized proxy that aggregates data from DTEK/YASNO and other official sources for maximum accuracy.
-- ✅ **Configure via UI**: Change your queue, sub-queue, or update interval on the fly without reinstalling.
+- ✅ **Configure via UI**: Change your queue or sub-queue on the fly without reinstalling.
+- ✅ **Shared polling**: Each data source is requested once for all configured queues (every 10 minutes; the POE interval is configurable).
 - ✅ **Smart Cleanup**: Automatically removes old entities and devices when you change settings.
 - ✅ Includes **built-in localization** (UA / EN),  
 - ✅ Schedules **precise entity state changes** at the exact time of power switch — without calling the API again.
@@ -63,9 +64,9 @@ The integration now uses own API (thanks to [yaroslav2901](https://github.com/ya
 ## 🔄 How It Works
 
 ### 🧩 Integration Architecture
-1.  **Unified Coordinator:** All regions/queues share a single cached data source to minimize network requests.
-2.  **Smart Caching:** Data is refreshed every 10 minutes by default (configurable per entry: 8–60 minutes). If you have multiple queues setup, they reuse the same downloaded JSON.
-3.  **Precise Ticking:** The integration calculates the next switch time and schedules an internal timer. If the power is off until 18:00, the sensor will switch to "On" exactly at 18:00:00 without waiting for the next API poll.
+1.  **One poller per source:** Each data source (DTEK API, legacy API, POE) is polled by a single shared coordinator. All queues of that source listen to it, so adding queues does not add requests.
+2.  **Update interval:** The DTEK and legacy APIs are polled every 10 minutes. The POE interval is one integration-wide setting (8–60 minutes, default 10), changed from the options of any POE queue. An extra refresh runs right after midnight (Kyiv time).
+3.  **Precise Ticking:** The integration calculates the next switch time and schedules an internal timer. If the power is off until 18:00, the sensor will switch to "On" exactly at 18:00:00 without waiting for the next API poll. If the data is older than 5 minutes at that moment, a fresh copy is also requested.
 
 ### 🕒 Timezone Handling
 - The API returns the schedule in **local Ukrainian time (Europe/Kyiv)**.  
@@ -103,7 +104,7 @@ You don't need to reinstall the integration to change your queue!
 1. Go to the integration card in Home Assistant.
 2. Click **Configure** (the cogwheel icon ⚙️).
 3. Select the new queue/sub-queue from the list.
-4. (Optional) Adjust the **Scan Interval** (default: 900 seconds / 15 min).
+4. (POE only, optional) Adjust the **Update interval** (8–60 minutes, default 10). It is shared by all POE queues.
 5. Click **Submit**. 
    *The integration will reload, delete old entities, and create new ones automatically.*
 

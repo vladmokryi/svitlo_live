@@ -15,11 +15,8 @@ from .const import (
     PLATFORMS,
     CONF_REGION,
     CONF_QUEUE,
-    CONF_SCAN_INTERVAL,
-    DEFAULT_SCAN_INTERVAL_MINUTES,
-    MIN_SCAN_INTERVAL_MINUTES,
-    MAX_SCAN_INTERVAL_MINUTES,
 )
+from .api_hub import async_get_hub
 from .coordinator import SvitloCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,32 +62,27 @@ async def _async_register_lovelace_resource(hass: HomeAssistant) -> None:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Svitlo.live v2 from a config entry."""
-    # Ініціалізація хаба
-    hass.data.setdefault(DOMAIN, {})
-    if "hub" not in hass.data[DOMAIN]:
-        from .api_hub import SvitloApiHub
-        hass.data[DOMAIN]["hub"] = SvitloApiHub(hass)
-    hub = hass.data[DOMAIN]["hub"]
-    
-    # Зчитуємо параметри
-    scan_minutes = int(entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL_MINUTES))
-    scan_minutes = max(MIN_SCAN_INTERVAL_MINUTES, min(MAX_SCAN_INTERVAL_MINUTES, scan_minutes))
-    region = entry.data[CONF_REGION]
-    queue = entry.data[CONF_QUEUE]
+    # Спільний хаб: опитує кожне джерело один раз для всіх записів
+    hub = await async_get_hub(hass)
 
     config = {
-        CONF_REGION: region,
-        CONF_QUEUE: queue,
-        "scan_interval_seconds": scan_minutes * 60,
+        CONF_REGION: entry.data[CONF_REGION],
+        CONF_QUEUE: entry.data[CONF_QUEUE],
     }
     
     # --- ОЧИЩЕННЯ СТАРИХ ДАНИХ ---
     # Видаляємо сутності ТА девайси, які не відповідають новій конфігурації
     await _async_cleanup_legacy_items(hass, entry)
 
-    # Ініціалізація координатора
-    coordinator = SvitloCoordinator(hass, config, hub)
-    await coordinator.async_config_entry_first_refresh()
+    # Ініціалізація координатора: підписка на спільне джерело, далі перерахунок без мережі
+    coordinator = SvitloCoordinator(hass, config, hub, entry.entry_id)
+    try:
+        await coordinator.async_attach()
+        await coordinator.async_config_entry_first_refresh()
+    except Exception:
+        coordinator.async_detach()
+        raise
+    entry.async_on_unload(coordinator.async_detach)
     
     hass.data[DOMAIN][entry.entry_id] = coordinator
     
