@@ -143,6 +143,8 @@ class SvitloLiveCardEditor extends HTMLElement {
           <div id="voltage3-picker-container" style="min-height: 50px; margin: 4px 0;"></div>
 
           <label style="font-weight: bold; font-size: 14px; margin-top: 16px; display: block; border-top: 1px solid var(--divider-color); padding-top: 12px;">Зовнішній вигляд:</label>
+          ${renderSwitch("compact-switch", "Компактний вигляд (показувати лише таймлайн)", "display: flex; align-items: center; margin-top: 4px;")}
+
           ${renderSwitch("shadow-switch", "Показувати тінь картки", "display: flex; align-items: center; margin-top: 4px;")}
 
           <div style="display: flex; gap: 12px; margin-top: 12px;">
@@ -366,6 +368,9 @@ class SvitloLiveCardEditor extends HTMLElement {
     const ahSwitch = this.querySelector("#actual-history-switch");
     if (ahSwitch) ahSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_actual_history', value: ev.target.checked } }));
 
+    const compactSwitch = this.querySelector("#compact-switch");
+    if (compactSwitch) compactSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'compact_view', value: ev.target.checked } }));
+
     const shadowSwitch = this.querySelector("#shadow-switch");
     if (shadowSwitch) shadowSwitch.addEventListener("change", (ev) => this._valueChanged({ target: { configValue: 'show_shadow', value: ev.target.checked } }));
 
@@ -528,6 +533,9 @@ class SvitloLiveCardEditor extends HTMLElement {
 
     const ahs = this.querySelector("#actual-history-switch");
     if (ahs) ahs.checked = this._config.show_actual_history === true;
+
+    const cvs = this.querySelector("#compact-switch");
+    if (cvs) cvs.checked = this._config.compact_view === true;
 
     const shs = this.querySelector("#shadow-switch");
     if (shs) shs.checked = this._config.show_shadow !== false;
@@ -752,6 +760,16 @@ class SvitloLiveCard extends HTMLElement {
             ha-card.no-shadows #timeline {
                box-shadow: none !important;
             }
+            ha-card.compact #header,
+            ha-card.compact #day-switcher,
+            ha-card.compact #history-timeline,
+            ha-card.compact #stats {
+               display: none !important;
+            }
+            ha-card.compact #container {
+               padding-top: 12px !important;
+               padding-bottom: 4px !important;
+            }
           </style>
         </ha-card>
       `;
@@ -917,6 +935,8 @@ class SvitloLiveCard extends HTMLElement {
     const config = this.config;
     if (!config || !config.entity || !hass.states[config.entity]) return;
 
+    const isCompact = config.compact_view === true;
+
     const card = this.querySelector('#svitlo-card');
     if (card) {
       if (config.show_shadow === false) {
@@ -924,6 +944,7 @@ class SvitloLiveCard extends HTMLElement {
       } else {
         card.classList.remove('no-shadows');
       }
+      card.classList.toggle('compact', isCompact);
     }
 
     const stateObj = hass.states[config.entity];
@@ -956,7 +977,8 @@ class SvitloLiveCard extends HTMLElement {
     const tomorrowSch = tomorrowData;
     const hasTomorrow = tomorrowSch.length === 48;
     const isDynamic = config.dynamic_timeline && hasTomorrow;
-    if (!hasTomorrow && this._selectedDay === 'tomorrow') {
+    // У компактному вигляді перемикач днів прихований, тому завжди показуємо сьогодні
+    if ((!hasTomorrow || isCompact) && this._selectedDay === 'tomorrow') {
       this._selectedDay = 'today';
     }
     const isToday = this._selectedDay === 'today';
