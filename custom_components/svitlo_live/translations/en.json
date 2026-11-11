@@ -81,7 +81,12 @@
         "name": "Electricity status"
       },
       "svitlo_emergency": {
-        "name": "Emergency outages"
+        "name": "Emergency outages",
+        "state_attributes": {
+          "emergency_types": {
+            "name": "Emergency types"
+          }
+        }
       }
     },
     "calendar": {

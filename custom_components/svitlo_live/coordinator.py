@@ -307,6 +307,9 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if is_emergency is None:
             is_emergency = bool(used_reg.get("emergency", False))
+        # Типи аварійних заходів (["ГАВ", "СГАВ"]) повідомляє лише ПОЕ;
+        # для інших джерел None — "тип невідомий", на відміну від [] — "заходів немає"
+        emergency_types = used_reg.get("emergency_types")
         has_any_slots = any(v in (1, 2) for v in slots_today_map.values())
         if not has_any_slots:
             base_day = datetime.fromisoformat(today_iso).date()
@@ -322,6 +325,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "next_on_at": None,
                 "next_off_at": None,
                 "is_emergency": is_emergency,
+                "emergency_types": emergency_types,
                 "today_outage_hours": None,
                 "tomorrow_outage_hours": None,
                 "longest_outage_hours": None,
@@ -421,6 +425,7 @@ class SvitloCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "history_today_48half": self._history_today,
             "history_tomorrow_48half": self._history_tomorrow,
             "is_emergency": is_emergency,
+            "emergency_types": emergency_types,
         }
 
         # Update "history" (store up to 3 previous versions)

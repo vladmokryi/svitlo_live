@@ -115,6 +115,7 @@ You don't need to reinstall the integration to change your queue!
 | Type | Name | Description |
 |------|------|-------------|
 | 🟢 **Binary Sensor** | `Electricity status` | True/False power indicator |
+| 🚨 **Binary Sensor** | `Emergency outages` | On while emergency outages are in effect. For POE, the `emergency_types` attribute lists which ones: `["ГАВ"]`, `["СГАВ"]`, `["ГАВ", "СГАВ"]` or `[]` (other sources don't report the type, so the attribute is absent). The card and the notification blueprint show these types instead of the generic "emergency outages" text |
 | 📘 **Sensor** | `Electricity` | Text status: “Grid ON / OFF” |
 | ⏰ **Sensor** | `Next grid connection` | Next power-on time (if currently off) |
 | ⚠️ **Sensor** | `Next outage` | Next power-off time (if currently on) |

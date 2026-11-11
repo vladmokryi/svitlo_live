@@ -46,8 +46,10 @@ SLOTS_PER_DAY = 48
 #   3 = АЧР  (автоматичне частотне розвантаження, разова подія)
 #   4 = ГПВ  (графік погодинного відключення)
 #   5 = ГОП  (обмеження потужності для непобутових споживачів)
-# Аварійними вважаємо лише ГАВ і СГАВ.
-EMERGENCY_UNLOADING_TYPES = {1, 2}
+# Аварійними вважаємо лише ГАВ і СГАВ. Назви — стабільні значення атрибута emergency_types
+# (не беремо unloadingtypename з відповіді, щоб зміна написання на сайті не ламала автоматизації);
+# порядок ключів задає порядок у списку.
+EMERGENCY_UNLOADING_TYPES = {1: "ГАВ", 2: "СГАВ"}
 
 
 def _parse_section_date(section: Any) -> Optional[date]:
@@ -149,36 +151,40 @@ def parse_poe_html(html: str, region_id: str, region_name: str, today: date, tom
                 "cpu": region_id,
                 "name_ua": region_name,
                 "emergency": False,
+                "emergency_types": [],
                 "schedule": schedule,
             }
         ],
     }
 
 
-def parse_poe_emergency(raw: str, now: datetime) -> bool:
-    """True, якщо в момент `now` (київський час) діє ГАВ або СГАВ.
+def parse_poe_emergency_types(raw: str, now: datetime) -> list[str]:
+    """Аварійні заходи, що діють у момент `now` (київський час): напр. ["ГАВ", "СГАВ"].
 
     `raw` — відповідь /customs/dynamic-unloading-info.php, напр.:
     [{"unloaddata": "05-11-2026", "beginhour": 16, "beginminute": 47,
       "endhour": 23, "endminute": 59, "unloadingtypeid": 1, "unloadingtypename": "ГАВ", ...}]
-    Кінець 00:00 трактуємо як "до кінця доби".
+    ГАВ і СГАВ можуть діяти одночасно; кожен тип у списку лише раз, у порядку
+    EMERGENCY_UNLOADING_TYPES. [] — аварійних заходів немає. Кінець 00:00 трактуємо як "до кінця доби".
     """
     try:
         entries = json.loads(raw)
     except ValueError as err:
         _LOGGER.warning("POE: invalid unloading JSON: %s", err)
-        return False
+        return []
     if not isinstance(entries, list):
-        return False
+        return []
 
     today = now.strftime("%d-%m-%Y")
     now_min = now.hour * 60 + now.minute
+    active: set[int] = set()
 
     for entry in entries:
         if not isinstance(entry, dict):
             continue
         try:
-            if int(entry.get("unloadingtypeid")) not in EMERGENCY_UNLOADING_TYPES:
+            type_id = int(entry.get("unloadingtypeid"))
+            if type_id not in EMERGENCY_UNLOADING_TYPES:
                 continue
             if entry.get("unloaddata") != today:
                 continue
@@ -189,5 +195,6 @@ def parse_poe_emergency(raw: str, now: datetime) -> bool:
         if end == 0:
             end = 24 * 60
         if begin <= now_min <= end:
-            return True
-    return False
+            active.add(type_id)
+
+    return [name for type_id, name in EMERGENCY_UNLOADING_TYPES.items() if type_id in active]

@@ -146,6 +146,11 @@ variables:
       {{ false }}
     {% endif %}
 
+  # Які саме заходи діють, напр. ['ГАВ', 'СГАВ'] (атрибут emergency_types є лише в ПОЕ; інакше [])
+  emergency_types: >-
+    {{ ((state_attr(emergency_entity, 'emergency_types') if is_emergency else none) or []) | list }}
+  emergency_types_label: "{{ emergency_types | join(', ') }}"
+
   triggered_by_emergency: >-
     {{ trigger.entity_id is defined and emergency_entity is string and emergency_entity != '' and trigger.entity_id == emergency_entity }}
 
@@ -228,27 +233,37 @@ action:
         {{ date_prefix ~ "|c=" ~ (events_for_signature|count|string) ~ ";" ~ ns.sig }}
 
       stored_data: "{{ states(storage_helper) | default('') }}"
-      last_was_emergency: "{{ '!E!' in stored_data[:3] }}"
-      old_signature: "{{ stored_data | replace('!E!', '') }}"
+      # Формат: "<підпис>" | "!E!<підпис>" | "!E:ГАВ,СГАВ!<підпис>" (типи — лише для ПОЕ).
+      # HA перетворює рядок із самих цифр (обрізаний хвіст довгого підпису) на число,
+      # тому stored_data / old_signature / clean_old_signature читаємо через | string
+      last_was_emergency: "{{ (stored_data | string)[:2] == '!E' }}"
+      stored_marker: "{{ (stored_data | string)[1:].split('!')[0] if last_was_emergency else '' }}"
+      last_emergency_types: "{{ stored_marker[2:].split(',') if stored_marker[:2] == 'E:' else [] }}"
+      old_signature: "{{ (stored_data | string)[(stored_marker | length) + 2:] if last_was_emergency else stored_data }}"
 
       current_date: "{{ now().strftime('%Y%m%d') }}"
       old_date: >-
-        {%- if old_signature|length >= 2 and old_signature[:2] == 'c=' -%}
+        {%- set o = old_signature | string -%}
+        {%- if o|length >= 2 and o[:2] == 'c=' -%}
           {{ current_date }}
-        {%- elif old_signature|length >= 8 -%}
-          {{ old_signature[:8] }}
+        {%- elif o|length >= 8 -%}
+          {{ o[:8] }}
         {%- else -%}
           {{ current_date }}
         {%- endif -%}
-      is_first_run_after_midnight: "{{ old_signature|length >= 8 and (old_signature|length < 2 or old_signature[:2] != 'c=') and (old_date|int(0)) < (current_date|int(0)) }}"
+      is_first_run_after_midnight: "{% set o = old_signature | string %}{{ o|length >= 8 and (o|length < 2 or o[:2] != 'c=') and (old_date|int(0)) < (current_date|int(0)) }}"
 
       emergency_status_changed: "{{ is_emergency != last_was_emergency }}"
+      # Аварія триває, але змінився склад заходів (напр. до ГАВ додався СГАВ)
+      emergency_types_changed: "{{ is_emergency and last_was_emergency and emergency_types != last_emergency_types }}"
+      emergency_changed: "{{ emergency_status_changed or emergency_types_changed }}"
 
       clean_old_signature: >-
-        {%- if '|' in old_signature -%}
-          {{ old_signature.split('|')[1] }}
+        {%- set o = old_signature | string -%}
+        {%- if '|' in o -%}
+          {{ o.split('|')[1] }}
         {%- else -%}
-          {{ old_signature }}
+          {{ o }}
         {%- endif -%}
       clean_new_signature: >-
         {%- if '|' in schedule_signature -%}
@@ -257,12 +272,12 @@ action:
           {{ schedule_signature }}
         {%- endif -%}
       schedule_has_changed: >-
-        {{ not is_first_run_after_midnight and 
-           ((send_on_first_run and stored_data == '') or 
-            clean_new_signature[-250:] != clean_old_signature[-250:]) }}
+        {{ not is_first_run_after_midnight and
+           ((send_on_first_run and stored_data == '') or
+            clean_new_signature[-240:] != (clean_old_signature | string)[-240:]) }}
 
       should_notify: >-
-        {{ (emergency_status_changed and notify_emergency_changes) or schedule_has_changed }}
+        {{ (emergency_changed and notify_emergency_changes) or schedule_has_changed }}
 
   - if:
       - condition: template
@@ -345,9 +360,9 @@ action:
             {% endif %}
 
           final_title: >-
-            {% if emergency_status_changed and notify_emergency_changes %}
+            {% if emergency_changed and notify_emergency_changes %}
               {% if is_emergency %}
-                🚨 ЕКСТРЕНІ ВІДКЛЮЧЕННЯ!
+                🚨 ЕКСТРЕНІ ВІДКЛЮЧЕННЯ{{ ': ' ~ emergency_types_label if emergency_types_label else '' }}!
               {% else %}
                 ✅ Екстрені відключення завершено
               {% endif %}
@@ -361,7 +376,7 @@ action:
 
             {%- endif %}
             {%- if is_emergency and notify_emergency_changes %}
-            ⛔️ УВАГА! Діють екстрені відключення.
+            ⛔️ УВАГА! Діють екстрені відключення{{ ': ' ~ emergency_types_label if emergency_types_label else '' }}.
 
             {%- endif %}
 
@@ -407,7 +422,7 @@ action:
 
             {%- endif %}
             {%- if is_emergency and notify_emergency_changes %}
-            🚨 <b>УВАГА! Введено екстрені відключення!</b>
+            🚨 <b>УВАГА! Введено екстрені відключення{{ ': ' ~ emergency_types_label if emergency_types_label else '' }}!</b>
             Графіки можуть не діяти.
 
             {%- endif %}
@@ -562,9 +577,16 @@ action:
             data:
               value: "{{ body_text[:255] }}"
 
-  # 4) ЗБЕРІГАЄМО СТАН (Аварія + Графік)
+  # 4) ЗБЕРІГАЄМО СТАН (Аварія + її типи + Графік); helper — до 255 символів:
+  # маркер "!E:ГАВ,СГАВ!" (до 12) + 240 символів підпису
   - service: input_text.set_value
     target:
       entity_id: !input storage_helper
     data:
-      value: "{% set sig = schedule_signature[-250:] %}{% if is_emergency %}!E!{{ sig }}{% else %}{{ sig }}{% endif %}"
+      value: >-
+        {%- set sig = schedule_signature[-240:] -%}
+        {%- if is_emergency -%}
+          !E{{ ':' ~ (emergency_types | join(',')) if emergency_types else '' }}!{{ sig }}
+        {%- else -%}
+          {{ sig }}
+        {%- endif -%}

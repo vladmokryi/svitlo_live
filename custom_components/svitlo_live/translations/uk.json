@@ -81,7 +81,12 @@
         "name": "Наявність світла"
       },
       "svitlo_emergency": {
-        "name": "Аварійні відключення"
+        "name": "Аварійні відключення",
+        "state_attributes": {
+          "emergency_types": {
+            "name": "Типи аварійних відключень"
+          }
+        }
       }
     },
     "calendar": {
