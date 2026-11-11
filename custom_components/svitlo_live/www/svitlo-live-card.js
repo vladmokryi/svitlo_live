@@ -1242,16 +1242,25 @@ class SvitloLiveCard extends HTMLElement {
     }
 
     let isEmergency = false;
+    let emState = null;
     if (config.show_emergency !== false) {
       if (config.emergency_entity && config.emergency_entity !== 'none') {
-        const emState = hass.states[config.emergency_entity];
+        emState = hass.states[config.emergency_entity];
         if (emState && (emState.state === 'on' || emState.state === 'true')) isEmergency = true;
       } else if (!('emergency_entity' in config) && attrs.region && attrs.queue) {
         const emEid = Object.keys(hass.states).find(eid => eid.includes('emergency') && hass.states[eid].attributes?.region === attrs.region && hass.states[eid].attributes?.queue === attrs.queue);
-        if (emEid && hass.states[emEid].state === 'on') isEmergency = true;
+        emState = emEid ? hass.states[emEid] : null;
+        if (emState && emState.state === 'on') isEmergency = true;
       }
     }
-    if (eb) eb.style.display = isEmergency ? 'block' : 'none';
+    if (eb) {
+      eb.style.display = isEmergency ? 'block' : 'none';
+      // ПОЕ повідомляє, які саме заходи діють (атрибут emergency_types, напр. ["ГАВ", "СГАВ"]) —
+      // показуємо їх замість загального тексту; для інших джерел атрибута немає
+      const emTypes = isEmergency ? emState?.attributes?.emergency_types : null;
+      const emText = `📢 ${Array.isArray(emTypes) && emTypes.length ? emTypes.join(', ') : 'ЕКСТРЕНІ ВІДКЛЮЧЕННЯ'}`;
+      if (eb.textContent !== emText) eb.textContent = emText;
+    }
 
     // ПЕРЕВІРКА ПОВІТРЯНОЇ ТРИВОГИ
     const isAlertActive = (eid) => {

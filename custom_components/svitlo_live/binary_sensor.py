@@ -93,5 +93,15 @@ class SvitloEmergencyBinary(SvitloBaseEntity, BinarySensorEntity):
         return data.get("is_emergency", False)
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs = super().extra_state_attributes
+        data = getattr(self.coordinator, "data", None) or {}
+        # Лише для джерел, що повідомляють тип заходу (зараз — ПОЕ): напр. ["ГАВ", "СГАВ"] або []
+        emergency_types = data.get("emergency_types")
+        if emergency_types is not None:
+            attrs["emergency_types"] = emergency_types
+        return attrs
+
+    @property
     def icon(self):
         return "mdi:alert-octagon" if self.is_on else "mdi:shield-check"
